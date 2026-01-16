@@ -1093,7 +1093,7 @@ namespace KERBALISM
 		public static string SolarPanelFixer_failure = GetLoc("SolarPanelFixer_failure"); // "Failure"
 		public static string SolarPanelFixer_invalidstate = GetLoc("SolarPanelFixer_invalidstate"); // "Invalid State"
 		public static string SolarPanelFixer_Trackedstar = GetLoc("SolarPanelFixer_Trackedstar"); // "Tracked Star"
-		public static string SolarPanelFixer_AutoTrack = GetLoc("SolarPanelFixer_AutoTrack"); // "[Auto]: "
+		public static string SolarPanelFixer_AutoTrack = GetLoc("SolarPanelFixer_AutoTrack"); // "[Auto] : "
 
 		////////////////////////////////////////////////////////////////////
 		// Class : Callbacks
