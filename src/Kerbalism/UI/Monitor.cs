@@ -404,7 +404,8 @@ namespace KERBALISM
 
 		void Problem_sunlight(VesselData vd, ref List<Texture2D> icons, ref List<string> tooltips)
 		{
-			if (vd.EnvInFullShadow)
+			//if (vd.EnvInFullShadow)
+			if (vd.SolarPanelsAverageExposure <= 0)
 			{
 				icons.Add(Textures.sun_black);
 				tooltips.Add(Local.Monitor_Inshadow);//"In shadow"
