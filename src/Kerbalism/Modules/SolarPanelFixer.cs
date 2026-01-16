@@ -285,6 +285,14 @@ namespace KERBALISM
 
 			// Update main status field text
 			Fields["panelMode"].guiActive = true;
+			if (analyticSunlight)
+			{
+				panelMode = Local.SolarPanelFixer_analytic;
+			}
+			else
+			{
+				panelMode = Local.SolarPanelFixer_realtime;
+			}
 			Fields["panelStatus"].guiActive = true;
 			Fields["panelStatusEnergy"].guiActive = false;
 			Fields["panelStatusExposure"].guiActive = false;
@@ -363,13 +371,11 @@ namespace KERBALISM
 					{
 						Fields["panelStatus"].guiActive = false;
 						Fields["panelStatusExposure"].guiActive = false;
-						panelMode = Local.SolarPanelFixer_analytic;
 					}
 					else
 					{
 						Fields["panelStatus"].guiActive = true;
 						Fields["panelStatusExposure"].guiActive = true;
-						panelMode = Local.SolarPanelFixer_realtime;
 						sb.Append(" ");
 						sb.Append(exposureFactor.ToString("P0"));
 						panelStatusExposure = sb.ToString();
