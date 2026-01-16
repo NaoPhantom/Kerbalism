@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
-using KSP.Localization;
 
 
 namespace KERBALISM
@@ -38,12 +37,19 @@ namespace KERBALISM
 		public bool hasRUI = false; // are we using a ResourceUnitInfo?
 
 		/// <summary>Main PAW info label</summary>
-		[KSPField(guiActive = true, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_Solarpanel")]//Solar panel
+		[KSPField(guiActive = false, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_mode")] //Solar Panel Mode
+		public string panelMode = string.Empty;
+		[KSPField(guiActive = true, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_Solarpanelstatus")]//Solar Panel Status
 		public string panelStatus = string.Empty;
-
-		[KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#KERBALISM_SolarPanelFixer_Solarpaneloutput")]//Solar panel output
-		[UI_Toggle(enabledText = "#KERBALISM_SolarPanelFixer_simulated", disabledText = "#KERBALISM_SolarPanelFixer_ignored")]//<color=#00ff00>simulated</color>""<color=#ffff00>ignored</color>
+		[KSPField(isPersistant = true, guiActive = false, guiActiveEditor = true, guiName = "#KERBALISM_SolarPanelFixer_Solarpaneloutput")]//Solar Panel Output
+		[UI_Toggle(enabledText = "#KERBALISM_SolarPanelFixer_simulated", disabledText = "#KERBALISM_SolarPanelFixer_ignored")]//<color=#00ff00>Simulated</color>""<color=#ffff00>Ignored</color>
 		public bool editorEnabled = true;
+		[KSPField(guiActive = false, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_energy")] //Energy Output
+		public string panelStatusEnergy = string.Empty;
+		[KSPField(guiActive = false, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_exposure")] //Exposure
+		public string panelStatusExposure = string.Empty;
+		[KSPField(guiActive = false, guiActiveEditor = false, guiName = "#KERBALISM_SolarPanelFixer_wear")] //Wear
+		public string panelStatusWear = string.Empty;
 
 		/// <summary>nominal rate at 1 UA (Kerbin distance from the sun)</summary>
 		[KSPField(isPersistant = true)]
@@ -100,6 +106,7 @@ namespace KERBALISM
 		private string mainOccludingPart;
 		private string rateFormat;
 		private StringBuilder sb;
+		VesselData.SunInfo trackedSunInfo;
 
 		public enum PanelState
 		{
@@ -127,7 +134,7 @@ namespace KERBALISM
 
 		#region KSP/Unity methods + background update
 
-		[KSPEvent(active = true, guiActive = true, guiName = "#KERBALISM_SolarPanelFixer_Selecttrackedstar")]//Select tracked star
+		[KSPEvent(active = true, guiActive = true, guiName = "#KERBALISM_SolarPanelFixer_Selecttrackedstar")]//Select Tracked Star
 		public void ManualTracking()
 		{
 			// Assemble the buttons
@@ -147,7 +154,7 @@ namespace KERBALISM
 			PopupDialog.SpawnPopupDialog(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new MultiOptionDialog(
 				Local.SolarPanelFixer_SelectTrackingBody,//"SelectTrackingBody"
 				Local.SolarPanelFixer_SelectTrackedstar_msg,//"Select the star you want to track with this solar panel."
-				Local.SolarPanelFixer_Selecttrackedstar,//"Select tracked star"
+				Local.SolarPanelFixer_Selecttrackedstar,//"Select Tracked Star"
 				UISkinManager.GetSkin("MainMenuSkin"),
 				options), false, UISkinManager.GetSkin("MainMenuSkin"));
 		}
@@ -223,11 +230,9 @@ namespace KERBALISM
 			// setup target module animation for custom star tracking
 			SolarPanel.SetTrackedBody(FlightGlobals.Bodies[trackedSunIndex]);
 
-			// set how many decimal points are needed to show the panel Ec output in the UI
-			if (nominalRate < 0.1) rateFormat = "F4";
-			else if (nominalRate < 1.0) rateFormat = "F3";
-			else if (nominalRate < 10.0) rateFormat = "F2";
-			else rateFormat = "F1";
+			// The value has been adjusted to three decimal places for more accurate display in PAW.
+			// In some extreme cases, a power generation value of 0.004 may appear.
+			rateFormat = "F3";
 		}
 
 		public override void OnSave(ConfigNode node)
@@ -271,51 +276,72 @@ namespace KERBALISM
 			if (Events["ManualTracking"].active && (state == PanelState.Extended || state == PanelState.ExtendedFixed || state == PanelState.Static))
 			{
 				Events["ManualTracking"].guiActive = true;
-				Events["ManualTracking"].guiName = Lib.BuildString(Local.SolarPanelFixer_Trackedstar +" ", manualTracking ? ": " : Local.SolarPanelFixer_AutoTrack, FlightGlobals.Bodies[trackedSunIndex].bodyDisplayName.Replace("^N", ""));//"Tracked star"[Auto] : "
+				Events["ManualTracking"].guiName = Lib.BuildString(Local.SolarPanelFixer_Trackedstar + " ", manualTracking ? ": " : Local.SolarPanelFixer_AutoTrack, FlightGlobals.Bodies[trackedSunIndex].bodyDisplayName.Replace("^N", ""));//"Tracked star"[Auto] : "
 			}
 			else
 			{
 				Events["ManualTracking"].guiActive = false;
 			}
 
-			// Update main status field visibility
-			if (state == PanelState.Failure || state == PanelState.Unknown)
-				Fields["panelStatus"].guiActive = false;
-			else
-				Fields["panelStatus"].guiActive = true;
-
 			// Update main status field text
+			Fields["panelMode"].guiActive = true;
+			Fields["panelStatus"].guiActive = true;
+			Fields["panelStatusEnergy"].guiActive = false;
+			Fields["panelStatusExposure"].guiActive = false;
+			Fields["panelStatusWear"].guiActive = false;
 			bool addRate = false;
 			switch (exposureState)
 			{
 				case ExposureState.InShadow:
-					panelStatus = "<color=#ff2222>"+Local.SolarPanelFixer_inshadow +"</color>";//in shadow
+					// In a multi-star environment, smooth transitions are possible when switching celestial bodies.
+					if (currentOutput >= 1e-3)
+					{
+						goto case ExposureState.Exposed;
+					}
+					panelStatus = "<color=#ff2222>" + Local.SolarPanelFixer_inshadow + "</color>";//In Shadow
 					addRate = true;
 					break;
 				case ExposureState.OccludedTerrain:
-					panelStatus = "<color=#ff2222>"+Local.SolarPanelFixer_occludedbyterrain +"</color>";//occluded by terrain
+					panelStatus = "<color=#ff2222>" + Local.SolarPanelFixer_occludedbyterrain + "</color>";//Occluded By Terrain
 					addRate = true;
 					break;
 				case ExposureState.OccludedPart:
-					panelStatus = Lib.BuildString("<color=#ff2222>", Local.SolarPanelFixer_occludedby.Format(mainOccludingPart), "</color>");//occluded by 
+					panelStatus = Lib.BuildString("<color=#ff2222>", Local.SolarPanelFixer_occludedby.Format(mainOccludingPart), "</color>");//Occluded By 
 					addRate = true;
 					break;
 				case ExposureState.BadOrientation:
-					panelStatus = "<color=#ff2222>"+Local.SolarPanelFixer_badorientation +"</color>";//bad orientation
+					// In a multi-star environment, smooth transitions are possible when switching celestial bodies.
+					if (currentOutput > 1e-10)
+					{
+						goto case ExposureState.Exposed;
+					}
+					panelStatus = "<color=#ff2222>" + Local.SolarPanelFixer_badorientation + "</color>";//Bad Orientation
 					addRate = true;
 					break;
 				case ExposureState.Disabled:
 					switch (state)
 					{
-						case PanelState.Retracted: panelStatus = Local.SolarPanelFixer_retracted; break;//"retracted"
-						case PanelState.Extending: panelStatus = Local.SolarPanelFixer_extending; break;//"extending"
-						case PanelState.Retracting: panelStatus = Local.SolarPanelFixer_retracting; break;//"retracting"
-						case PanelState.Broken: panelStatus = Local.SolarPanelFixer_broken; break;//"broken"
-						case PanelState.Failure: panelStatus = Local.SolarPanelFixer_failure; break;//"failure"
-						case PanelState.Unknown: panelStatus = Local.SolarPanelFixer_invalidstate; break;//"invalid state"
+						case PanelState.Retracted: panelStatus = Local.SolarPanelFixer_retracted; break;//"Retracted"
+						case PanelState.Extending: panelStatus = Local.SolarPanelFixer_extending; break;//"Extending"
+						case PanelState.Retracting: panelStatus = Local.SolarPanelFixer_retracting; break;//"Retracting"
+						case PanelState.Broken: panelStatus = Local.SolarPanelFixer_broken; break;//"Broken"
+						case PanelState.Failure: panelStatus = Local.SolarPanelFixer_failure; break;//"Failure"
+						case PanelState.Unknown: panelStatus = Local.SolarPanelFixer_invalidstate; break;//"Invalid State"
 					}
 					break;
 				case ExposureState.Exposed:
+					// The value has been adjusted to three decimal places for more accurate display in PAW.
+					if (currentOutput >= 1e-10 && currentOutput < 1e-3)
+					{
+						rateFormat = "F5";
+					}
+					else if (currentOutput >= 1e-3)
+					{
+						rateFormat = "F3";
+					}
+					Fields["panelStatusExposure"].guiActive = true;
+					Fields["panelStatusEnergy"].guiActive = true;
+					panelStatus = "<color=#eaff56>" + Local.SolarPanelFixer_sunDirect + "</color>"; //"Sun Direct"
 					sb.Length = 0;
 					if (Settings.UseSIUnits)
 					{
@@ -323,35 +349,39 @@ namespace KERBALISM
 							sb.Append(Lib.SIRate(currentOutput, Lib.ECResID));
 						else
 							sb.Append(Lib.SIRate(currentOutput, EcUIUnit));
+						panelStatusEnergy = sb.ToString();
 					}
 					else
 					{
 						sb.Append(currentOutput.ToString(rateFormat));
 						sb.Append(" ");
 						sb.Append(EcUIUnit);
+						panelStatusEnergy = sb.ToString();
 					}
+					sb.Length = 0;
 					if (analyticSunlight)
 					{
-						sb.Append(", ");
-						sb.Append(Local.SolarPanelFixer_analytic);//analytic
-						sb.Append(" ");
-						sb.Append(persistentFactor.ToString("P0"));
+						Fields["panelStatus"].guiActive = false;
+						Fields["panelStatusExposure"].guiActive = false;
+						panelMode = Local.SolarPanelFixer_analytic;
 					}
 					else
 					{
-						sb.Append(", ");
-						sb.Append(Local.SolarPanelFixer_exposure);//exposure
+						Fields["panelStatus"].guiActive = true;
+						Fields["panelStatusExposure"].guiActive = true;
+						panelMode = Local.SolarPanelFixer_realtime;
 						sb.Append(" ");
 						sb.Append(exposureFactor.ToString("P0"));
+						panelStatusExposure = sb.ToString();
 					}
+					sb.Length = 0;
 					if (wearFactor < 1.0)
 					{
-						sb.Append(", ");
-						sb.Append(Local.SolarPanelFixer_wear);//wear
-						sb.Append(" : ");
+						Fields["panelStatusWear"].guiActive = true;
+						sb.Append(" ");
 						sb.Append((1.0 - wearFactor).ToString("P0"));
+						panelStatusWear = sb.ToString();
 					}
-					panelStatus = sb.ToString();
 					break;
 			}
 			if (addRate && currentOutput > 0.001)
@@ -418,14 +448,75 @@ namespace KERBALISM
 				return;
 			}
 
-			// Update tracked sun in auto mode
-			if (!manualTracking && trackedSunIndex != vd.EnvMainSun.SunData.bodyIndex)
+
+			/**
+			 * Automatic Tracking Logic: Determines the optimal target star for solar panels.
+			 * Logic Flow:
+			 * 1. State Check: Executes only if manual tracking is disabled and panels are deployed/active.
+			 * 2. Analytic Mode: Selects the star with the highest SolarFlux (direct calculation).
+			 * 3. Standard Mode:
+			 *		- Primary: Selects the brightest visible star (SunlightFactor > 0.05).
+			 *		- Fallback: If all stars are occluded (e.g., in a planet's shadow), selects the 
+			 * geometrically closest star to ensure the panel is pre-aligned when exiting shadow.
+			**/
+			if (!manualTracking && (state == PanelState.Extended || state == PanelState.ExtendedFixed || state == PanelState.Static))
 			{
-				trackedSunIndex = vd.EnvMainSun.SunData.bodyIndex;
-				SolarPanel.SetTrackedBody(vd.EnvMainSun.SunData.body);
+				VesselData.SunInfo bestSun = null;
+
+				if (vd.EnvIsAnalytic)
+				{
+					// Mode A: Analytic Mode - Find the star providing the maximum solar flux
+					double maxFlux = -1.0;
+					foreach (var sunInfo in vd.EnvSunsInfo)
+					{
+						if (sunInfo.SolarFlux > maxFlux)
+						{
+							maxFlux = sunInfo.SolarFlux;
+							bestSun = sunInfo;
+						}
+					}
+				}
+				else
+				{
+					// Mode B: Standard Mode - Find the brightest star that is not currently occluded
+					double maxActiveFlux = -1.0;
+					foreach (var sunInfo in vd.EnvSunsInfo)
+					{
+						if (sunInfo.SunlightFactor > 0.05)
+						{
+							if (sunInfo.SolarFlux > maxActiveFlux)
+							{
+								maxActiveFlux = sunInfo.SolarFlux;
+								bestSun = sunInfo;
+							}
+						}
+					}
+
+					// Fallback: If all stars are blocked, target the nearest star by distance
+					if (bestSun == null)
+					{
+						double minDistance = double.MaxValue;
+						foreach (var sunInfo in vd.EnvSunsInfo)
+						{
+							double dist = Vector3d.Distance(vessel.GetWorldPos3D(), sunInfo.SunData.body.position);
+							if (dist < minDistance)
+							{
+								minDistance = dist;
+								bestSun = sunInfo;
+							}
+						}
+					}
+				}
+
+				// Update tracked sun in auto mode
+				if (bestSun != null && trackedSunIndex != bestSun.SunData.bodyIndex)
+				{
+					trackedSunIndex = bestSun.SunData.bodyIndex;
+					SolarPanel.SetTrackedBody(bestSun.SunData.body);
+				}
 			}
 
-			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
+			trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
 
 			if (trackedSunInfo.SunlightFactor == 0.0)
 				exposureState = ExposureState.InShadow;
@@ -454,7 +545,8 @@ namespace KERBALISM
 			{
 				// if we are switching to analytic mode and the vessel is landed, get an average exposure over a day
 				// TODO : maybe check the rotation speed of the body, this might be inaccurate for tidally-locked bodies (test on the mun ?)
-				if (!analyticSunlight && Lib.Landed(vessel)) persistentFactor = GetAnalyticalCosineFactorLanded(vd);
+				/*if (!analyticSunlight && Lib.Landed(vessel))
+					persistentFactor = GetAnalyticalCosineFactorLanded(vd);*/
 				analyticSunlight = true;
 			}
 			else
@@ -466,15 +558,19 @@ namespace KERBALISM
 			// - evaluting sun_dir / vessel orientation gives random results resulting in inaccurate behavior / random EC rates
 			// - using the last calculated factor is a satisfactory simulation of a sun relative vessel attitude keeping behavior
 			//   without all the complexity of actually doing it
+			// --- A factor specifically designed to calculate actual electricity generation ---
+			double powerFactor = 0.0;
 			if (analyticSunlight)
 			{
-				exposureFactor = persistentFactor;
+				powerFactor = CalculateMultiStarPowerAnalytic(vessel, vd.EnvSunsInfo, trackedSunInfo, SolarPanel.IsTracking, persistentFactor);
+				persistentFactor = powerFactor;
+				vd.SaveSolarPanelExposure(persistentFactor);
 			}
 			else
 			{
 				// reset factors
-				persistentFactor = 0.0;
 				exposureFactor = 0.0;
+				powerFactor = 0.0;
 
 				// iterate over all stars, compute the exposure factor
 				foreach (VesselData.SunInfo sunInfo in vd.EnvSunsInfo)
@@ -492,16 +588,15 @@ namespace KERBALISM
 
 					if (sunCosineFactor == 0.0)
 					{
-						// If this is the tracked sun and the panel is not oriented toward the sun, update the gui info string.
 						if (sunInfo == trackedSunInfo)
 							exposureState = ExposureState.BadOrientation;
+						sunCosineFactor = 0.0;
 					}
 					else
 					{
-						// The panel is oriented toward the sun, do a physic raycast to check occlusion from parts, terrain, buildings...
+						// The panel is oriented toward the sun, do a physic raycast to check occlusion
 						sunOccludedFactor = SolarPanel.GetOccludedFactor(sunInfo.Direction, out occludingPart, sunInfo != trackedSunInfo);
 
-						// If this is the tracked sun and the panel is occluded, update the gui info string. 
 						if (sunInfo == trackedSunInfo && sunOccludedFactor == 0.0)
 						{
 							if (occludingPart != null)
@@ -516,37 +611,33 @@ namespace KERBALISM
 						}
 					}
 
-					// Compute final aggregate exposure factor
-					double sunExposureFactor = sunCosineFactor * sunOccludedFactor * sunInfo.FluxProportion;
+					if (sunInfo.SunlightFactor == 1.0)
+					{
+						// Core: Angle of the star * Occlusion of the star * (Actual flux of the star / Reference flux)
+						double starDistanceFactor = sunInfo.SolarFlux / Sim.SolarFluxAtHome;
+						powerFactor += sunCosineFactor * sunOccludedFactor * starDistanceFactor;
+					}
+					else if (sunInfo == trackedSunInfo)
+					{
+						exposureState = ExposureState.InShadow;
+					}
 
-					// Add the final factor to the saved exposure factor to be used in analytical / unloaded states.
-					// If occlusion is from the scene, not a part (terrain, building...) don't save the occlusion factor,
-					// as occlusion from the terrain and static objects is too variable over time.
-					if (occludingPart != null)
-						persistentFactor += sunExposureFactor;
-					else
-						persistentFactor += sunCosineFactor * sunInfo.FluxProportion;
-
-					// Only apply the exposure factor if not in shadow (body occlusion check)
-					if (sunInfo.SunlightFactor == 1.0) exposureFactor += sunExposureFactor;
-					else if (sunInfo == trackedSunInfo) exposureState = ExposureState.InShadow;
+					if (sunInfo == trackedSunInfo)
+					{
+						exposureFactor = sunCosineFactor * sunOccludedFactor;
+					}
+					persistentFactor = powerFactor;
+					vd.SaveSolarPanelExposure(persistentFactor);
 				}
-				vd.SaveSolarPanelExposure(persistentFactor);
 			}
 
-			// get solar flux and deduce a scalar based on nominal flux at 1AU
-			// - this include atmospheric absorption if inside an atmosphere
-			// - at high timewarps speeds, atmospheric absorption is analytical (integrated over a full revolution)
-			double distanceFactor = vd.EnvSolarFluxTotal / Sim.SolarFluxAtHome;
-
-			// get wear factor (time based output degradation)
 			wearFactor = 1.0;
 			if (timeEfficCurve?.Curve.keys.Length > 1)
 				wearFactor = Lib.Clamp(timeEfficCurve.Evaluate((float)((Planetarium.GetUniversalTime() - launchUT) / 3600.0)), 0.0, 1.0);
 
-			// get final output rate in EC/s
-			currentOutput = nominalRate * wearFactor * distanceFactor * exposureFactor;
+			currentOutput = nominalRate * wearFactor * powerFactor;
 
+			// ------------------------------------
 			// ignore very small outputs
 			if (currentOutput < 1e-10)
 			{
@@ -583,11 +674,26 @@ namespace KERBALISM
 			// - it's fast and easy
 			double efficiencyFactor = Lib.Proto.GetDouble(m, "persistentFactor");
 
-			// calculate normalized solar flux factor
-			// - this include atmospheric absorption if inside an atmosphere
-			// - this is zero when the vessel is in shadow when evaluation is non-analytic (low timewarp rates)
-			// - if integrated over orbit (analytic evaluation), this include fractional sunlight / atmo absorbtion
-			efficiencyFactor *= vd.EnvSolarFluxTotal / Sim.SolarFluxAtHome;
+			// Retrieve tracking info and calculate dynamic power factor
+			int trackedSunIndex = Lib.Proto.GetInt(m, "trackedSunIndex");
+			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
+			if (trackedSunInfo == null && vd.EnvSunsInfo.Count > 0) trackedSunInfo = vd.EnvSunsInfo[0];
+
+			bool isTracking = prefab.SolarPanel.IsTracking;
+			double powerFactor = CalculateMultiStarPowerAnalytic(v, vd.EnvSunsInfo, trackedSunInfo, isTracking, efficiencyFactor);
+
+			// Update persistentFactor for UI (Only if tracking to avoid feedback loop on fixed panels)
+			if (isTracking)
+			{
+				efficiencyFactor = powerFactor;
+				Lib.Proto.Set(m, "persistentFactor", efficiencyFactor);
+			}
+			else
+			{
+				// For fixed panels, use the calculated power factor for output but avoid overwriting the geometric factor
+				// Note: current logic uses persistentFactor as powerFactor in analytic mode, so we use it here too.
+				efficiencyFactor = powerFactor;
+			}
 
 			// get wear factor (output degradation with time)
 			if (m.moduleValues.HasNode("timeEfficCurve"))
@@ -631,7 +737,7 @@ namespace KERBALISM
 				switch (pm.moduleName)
 				{
 					case "ModuleCurvedSolarPanel": SolarPanel = new NFSCurvedPanel(); break;
-					case "SSTUSolarPanelStatic": SolarPanel = new SSTUStaticPanel();  break;
+					case "SSTUSolarPanelStatic": SolarPanel = new SSTUStaticPanel(); break;
 					case "SSTUSolarPanelDeployable": SolarPanel = new SSTUVeryComplexPanel(); break;
 					case "SSTUModularPart": SolarPanel = new SSTUVeryComplexPanel(); break;
 					case "ModuleROSolar": SolarPanel = new ROConfigurablePanel(); break;
@@ -722,10 +828,181 @@ namespace KERBALISM
 			foreach (double exposure in exposures) averageExposure += exposure;
 			return averageExposure / exposures.Count;
 		}
+
+		/// <summary>
+		/// Determines if a single star can potentially be occluded (analytical approximation).
+		/// </summary>
+		private static bool CanStarCauseEclipse(Vessel v, Vector3d starDir)
+		{
+			if (v.LandedOrSplashed) return true;
+
+			CelestialBody body = v.mainBody;
+			double r_p = body.Radius;
+			double r_o = v.altitude + r_p;
+
+			// Angular semi-diameter of the planet
+			double sinTheta = Math.Min(r_p / r_o, 1.0);
+			double theta = Math.Asin(sinTheta);
+
+			// Orbital normal (In KSP, convert orbit normal to world coordinates)
+			Vector3d orbitNormal = v.orbit.GetOrbitNormal().xzy.normalized;
+
+			// Cosine of the star's elevation relative to the orbital plane (essentially sin(inclination))
+			double cosI = Math.Abs(Vector3d.Dot(starDir.normalized, orbitNormal));
+
+			// Physical check: If the elevation angle is high enough, the vessel never enters the cylindrical shadow
+			return cosI <= Math.Sin(theta);
+		}
+
+		/// <summary>
+		/// Precise check for occlusion at a specific time (Cylindrical Shadow Model).
+		/// </summary>
+		private static bool IsOccludedAtTime(Vessel v, Vector3d starDir, double ut)
+		{
+			Vector3d pos = v.orbit.getPositionAtUT(ut);
+			Vector3d bodyPos = v.mainBody.getPositionAtUT(ut);
+			Vector3d relativePos = pos - bodyPos;
+
+			// 1. Check if the vessel is on the night side of the planet
+			if (Vector3d.Dot(relativePos, starDir) >= 0)
+				return false;
+
+			// 2. Calculate the perpendicular distance from the vessel to the shadow axis
+			// The shadow axis is a line passing through the planet center parallel to the light rays
+			Vector3d projOnSunDir = Vector3d.Project(relativePos, starDir);
+			Vector3d distVec = relativePos - projOnSunDir;
+
+			return distVec.magnitude < v.mainBody.Radius;
+		}
+
+		/// <summary>
+		/// Final implementation: Semi-analytical approach with low-sample expectation accumulation.
+		/// Guarantees energy conservation and computational efficiency for both single and multi-star systems.
+		/// </summary>
+		public static double CalculateMultiStarPowerAnalytic(Vessel v, List<VesselData.SunInfo> suns, VesselData.SunInfo mainSun, bool isTracking, double fixedOrientationFactor)
+		{
+			// Landing/Splashdown Status Handling
+			if (Lib.Landed(v))
+			{
+				return CalculateLandedMultiStarPower(v, suns, mainSun, isTracking, fixedOrientationFactor);
+			}
+
+			double orbitPeriod = v.orbit.period;
+			double ut0 = Planetarium.GetUniversalTime();
+			double totalPowerExpectation = 0.0;
+
+			foreach (var sun in suns)
+			{
+				if (sun.SolarFlux < 1e-6) continue;
+
+				Vector3d starDir = sun.Direction.normalized;
+				double duty = 1.0;
+
+				// Step 1: Calculate visibility probability (Duty Cycle)
+				// We sample over the entire orbit to get a stable average, avoiding jitter from time-based windowing.
+				if (CanStarCauseEclipse(v, starDir))
+				{
+					const int windowSamples = 16;
+					int litCount = 0;
+					double step = orbitPeriod / windowSamples;
+					for (int i = 0; i < windowSamples; i++)
+					{
+						if (!IsOccludedAtTime(v, starDir, ut0 + (i * step)))
+							litCount++;
+					}
+					duty = (double)litCount / windowSamples;
+				}
+
+				// Step 2: Critical Correction — Calculate effective incidence angle for this star relative to the panel
+				double effectiveCos = 0.0;
+
+				if (isTracking)
+				{
+					// If tracking, the panel aligns perfectly with the 'mainSun'
+					if (sun == mainSun)
+					{
+						effectiveCos = 1.0; // Primary star, maximum efficiency
+					}
+					else
+					{
+						// Efficiency for secondary stars = cosine of the angle between them and the primary star
+						// Only contributes if the secondary star is on the "front" side of the panel (angle < 90 deg)
+						double cosBetween = Vector3d.Dot(mainSun.Direction.normalized, sun.Direction.normalized);
+						effectiveCos = Math.Max(0.0, cosBetween);
+					}
+				}
+				else
+				{
+					// For fixed panels, use the persistentFactor stored from real-time mode
+					// Assumes this factor represents a weighted average of all sunlight or current orientation
+					effectiveCos = fixedOrientationFactor;
+				}
+
+				// Step 3: Accumulate Energy Expectation
+				totalPowerExpectation += duty * (sun.SolarFlux / Sim.SolarFluxAtHome) * effectiveCos;
+			}
+
+			return totalPowerExpectation;
+		}
+
+		/// <summary>
+		/// Calculates multi-star solar power generation for a landed vessel.
+		/// </summary>
+		public static double CalculateLandedMultiStarPower(Vessel v, List<VesselData.SunInfo> suns, VesselData.SunInfo mainSun, bool isTracking, double fixedOrientationFactor)
+		{
+			double totalPower = 0.0;
+
+			foreach (var sun in suns)
+			{
+				if (sun.SolarFlux < 1e-6) continue;
+
+				// 1. Surface Sunlight Duty Cycle
+				// On a planetary surface, due to rotation, the analytical model generally 
+				// assumes the vessel spends half its time in daylight (0.5).
+				// While latitude and polar regions could be factored in, 0.5 is the most 
+				// robust generic expectation value.
+				double duty = 0.5;
+
+				// 2. Horizon Check (Instantaneous determination)
+				// Prevents power generation in analytical mode if the star is currently below the horizon.
+				// Get the surface normal (Up vector) at the vessel's current position.
+				Vector3d surfaceNormal = v.upAxis;
+				double cosHeight = Vector3d.Dot(surfaceNormal, sun.Direction.normalized);
+
+				// If the star is below the horizon, the current expected contribution is zero.
+				if (cosHeight <= 0) duty = 0.0;
+
+				// 3. Effective Angle Calculation
+				double effectiveCos = 0.0;
+				if (isTracking)
+				{
+					// If the panel is tracking, it aligns with the 'mainSun'
+					if (sun == mainSun)
+					{
+						effectiveCos = 1.0;
+					}
+					else
+					{
+						// For other stars, the efficiency is based on the cosine of the 
+						// angle between the star and the primary tracking target.
+						double cosBetween = Vector3d.Dot(mainSun.Direction.normalized, sun.Direction.normalized);
+						effectiveCos = Math.Max(0.0, cosBetween);
+					}
+				}
+				else
+				{
+					// For fixed panels, use the factor captured during real-time simulation.
+					effectiveCos = fixedOrientationFactor;
+				}
+
+				totalPower += duty * (sun.SolarFlux / Sim.SolarFluxAtHome) * effectiveCos;
+			}
+			return totalPower;
+		}
 		#endregion
 
 		#region Abstract class for common interaction with supported PartModules
-		public abstract class SupportedPanel 
+		public abstract class SupportedPanel
 		{
 			/// <summary>Reference to the SolarPanelFixer, must be set from OnLoad</summary>
 			protected SolarPanelFixer fixerModule;
@@ -1028,7 +1305,7 @@ namespace KERBALISM
 				panelModule.flowRate = (float)fixerModule.currentOutput;
 			}
 		}
-#endregion
+		#endregion
 
 		#region Near Future Solar support (ModuleCurvedSolarPanel)
 		// Near future solar curved panel support
@@ -1076,7 +1353,7 @@ namespace KERBALISM
 					return true;
 #if !DEBUG_SOLAR
 				}
-				catch (Exception ex) 
+				catch (Exception ex)
 				{
 					Lib.Log("SolarPanelFixer : exception while getting ModuleCurvedSolarPanel data : " + ex.Message);
 					return false;
@@ -1317,7 +1594,7 @@ namespace KERBALISM
 			private Func<string> getAnimationState; // delegate for the AnimationModule.persistentData property (string of the animState struct)
 			private List<SSTUPanelData> panels;
 			private TrackingType trackingType = TrackingType.Unknown;
-			private enum TrackingType {Unknown = 0, Fixed, SinglePivot, DoublePivot }
+			private enum TrackingType { Unknown = 0, Fixed, SinglePivot, DoublePivot }
 			private string currentModularVariant;
 
 			private class SSTUPanelData
@@ -1340,7 +1617,7 @@ namespace KERBALISM
 				public Vector3 SuncatcherAxisVector(int index) => GetDirection(suncatchers[index].transform, suncatchers[index].axis);
 				public RaycastHit SuncatcherHit(int index) => Lib.ReflectionValue<RaycastHit>(suncatchers[index].objectRef, "hitData");
 
-				public enum Axis {XPlus, XNeg, YPlus, YNeg, ZPlus, ZNeg}
+				public enum Axis { XPlus, XNeg, YPlus, YNeg, ZPlus, ZNeg }
 				public static Axis ParseSSTUAxis(object sstuAxis) { return (Axis)Enum.Parse(typeof(Axis), sstuAxis.ToString()); }
 				private Vector3 GetDirection(Transform transform, Axis axis)
 				{
@@ -1370,14 +1647,14 @@ namespace KERBALISM
 					switch (panelModule.moduleName)
 					{
 						case "SSTUModularPart":
-						solarModuleSSTU = Lib.ReflectionValue<object>(panelModule, "solarFunctionsModule");
-						currentModularVariant = Lib.ReflectionValue<string>(panelModule, "currentSolar");
-						break;
+							solarModuleSSTU = Lib.ReflectionValue<object>(panelModule, "solarFunctionsModule");
+							currentModularVariant = Lib.ReflectionValue<string>(panelModule, "currentSolar");
+							break;
 						case "SSTUSolarPanelDeployable":
-						solarModuleSSTU = Lib.ReflectionValue<object>(panelModule, "solarModule");
-						break;
+							solarModuleSSTU = Lib.ReflectionValue<object>(panelModule, "solarModule");
+							break;
 						default:
-						return false;
+							return false;
 					}
 
 					// Get animation module
@@ -1395,7 +1672,7 @@ namespace KERBALISM
 						nominalRate = newNominalrate;
 						// reset the rate sum in the SSTU module. This won't prevent SSTU from generating EC, but this way we can keep track of what we did
 						// don't doit in the editor as it isn't needed and we need it in case of variant switching
-						if (Lib.IsFlight()) Lib.ReflectionValue(solarModuleSSTU, "standardPotentialOutput", 0f); 
+						if (Lib.IsFlight()) Lib.ReflectionValue(solarModuleSSTU, "standardPotentialOutput", 0f);
 					}
 
 					panels = new List<SSTUPanelData>();
@@ -1409,7 +1686,7 @@ namespace KERBALISM
 						if (suncatchers == null || pivots == null || suncatchersCount == 0) continue;
 
 						// instantiate our data class
-						SSTUPanelData panelData = new SSTUPanelData();  
+						SSTUPanelData panelData = new SSTUPanelData();
 
 						// get suncatcher transforms and the orientation of the panel surface normal
 						panelData.suncatchers = new SSTUPanelData.SSTUSunCatcher[suncatchersCount];
@@ -1427,7 +1704,7 @@ namespace KERBALISM
 						// double axis panels can have 2 pivots. Its seems the suncatching one is always the second.
 						// For our purpose we can just assume always perfect alignement anyway.
 						// Note : some double-pivot panels seems to use a second SSTUSolarPanelDeployable instead, we don't support those.
-						switch (pivots.Length) 
+						switch (pivots.Length)
 						{
 							case 0:
 								trackingType = TrackingType.Fixed; break;
@@ -1451,7 +1728,7 @@ namespace KERBALISM
 					switch (panelModule.moduleName)
 					{
 						case "SSTUModularPart": panelModule.Fields["solarPanelStatus"].guiActive = false; break;
-						case "SSTUSolarPanelDeployable": foreach(var field in panelModule.Fields) field.guiActive = false; break;
+						case "SSTUSolarPanelDeployable": foreach (var field in panelModule.Fields) field.guiActive = false; break;
 					}
 					return true;
 #if !DEBUG_SOLAR
@@ -1483,9 +1760,9 @@ namespace KERBALISM
 
 						switch (trackingType)
 						{
-							case TrackingType.Fixed:		cosineFactor += Math.Max(Vector3d.Dot(sunDir, panel.SuncatcherAxisVector(i)), 0.0); continue;
-							case TrackingType.SinglePivot:	cosineFactor += Math.Cos(1.57079632679 - Math.Acos(Vector3d.Dot(sunDir, panel.PivotAxisVector))); continue;
-							case TrackingType.DoublePivot:	cosineFactor += 1.0; continue;
+							case TrackingType.Fixed: cosineFactor += Math.Max(Vector3d.Dot(sunDir, panel.SuncatcherAxisVector(i)), 0.0); continue;
+							case TrackingType.SinglePivot: cosineFactor += Math.Cos(1.57079632679 - Math.Acos(Vector3d.Dot(sunDir, panel.PivotAxisVector))); continue;
+							case TrackingType.DoublePivot: cosineFactor += 1.0; continue;
 						}
 					}
 				}
@@ -1797,5 +2074,5 @@ namespace KERBALISM
 			DrawRay(position + Vector3.forward * (scale * 0.5f), -Vector3.forward * scale, color);
 		}
 	}
-#endregion
+	#endregion
 } // KERBALISM
