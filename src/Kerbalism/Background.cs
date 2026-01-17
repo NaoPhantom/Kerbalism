@@ -719,7 +719,6 @@ namespace KERBALISM
 
 			m.moduleName = "SolarPanelFixer";
 			Lib.Proto.Set(m, "state", state);
-			Lib.Proto.Set(m, "persistentFactor", 0.75);
 			Lib.Proto.Set(m, "launchUT", Planetarium.GetUniversalTime());
 			Lib.Proto.Set(m, "nominalRate", panelModule.chargeRate);
 		}
