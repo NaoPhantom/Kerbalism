@@ -55,10 +55,6 @@ namespace KERBALISM
 		[KSPField(isPersistant = true)]
 		public double nominalRate = 10.0; // doing this on the purpose of not breaking existing saves
 
-		/// <summary>aggregate efficiency factor for angle exposure losses and occlusion from parts</summary>
-		[KSPField(isPersistant = true)]
-		public double persistentFactor = 1.0; // doing this on the purpose of not breaking existing saves
-
 		/// <summary>current state of the module</summary>
 		[KSPField(isPersistant = true)]
 		public PanelState state;
@@ -251,11 +247,6 @@ namespace KERBALISM
 
 			// do nothing if vessel is invalid
 			if (!vd.IsSimulated) return;
-
-			// calculate average exposure over a full day when landed, will be used for panel background processing
-			double landedPersistentFactor = CalculateLandedMultiStarPower(vd.Vessel, vd.EnvSunsInfo, trackedSunInfo, SolarPanel.Type, SolarPanel.IsTracking);
-			node.SetValue("persistentFactor", landedPersistentFactor);
-			vd.SaveSolarPanelExposure(landedPersistentFactor);
 		}
 
 		public void Update()
@@ -535,8 +526,6 @@ namespace KERBALISM
 			{
 				analyticSunlight = true;
 				powerFactor = CalculateMultiStarPowerAnalytic(vessel, vd.EnvSunsInfo, trackedSunInfo, SolarPanel.Type, SolarPanel.IsTracking);
-				persistentFactor = powerFactor;
-				vd.SaveSolarPanelExposure(persistentFactor);
 			}
 			else
 			{
@@ -544,7 +533,7 @@ namespace KERBALISM
 				// reset factors
 				exposureFactor = 0.0;
 				powerFactor = 0.0;
-
+				
 				// iterate over all stars, compute the exposure factor
 				foreach (VesselData.SunInfo sunInfo in vd.EnvSunsInfo)
 				{
@@ -589,6 +578,7 @@ namespace KERBALISM
 						// Core: Angle of the star * Occlusion of the star * (Actual flux of the star / Reference flux)
 						double starDistanceFactor = sunInfo.SolarFlux / Sim.SolarFluxAtHome;
 						powerFactor += sunCosineFactor * sunOccludedFactor * starDistanceFactor;
+					
 					}
 					else if (sunInfo == trackedSunInfo)
 					{
@@ -600,8 +590,7 @@ namespace KERBALISM
 						exposureFactor = sunCosineFactor * sunOccludedFactor;
 					}
 				}
-				persistentFactor = powerFactor;
-				vd.SaveSolarPanelExposure(persistentFactor);
+				
 			}
 
 			wearFactor = 1.0;
@@ -650,7 +639,6 @@ namespace KERBALISM
 			bool isTracking = prefab.SolarPanel.IsTracking;
 			double powerFactor = CalculateMultiStarPowerAnalytic(v, vd.EnvSunsInfo, trackedSunInfo, prefab.SolarPanel.Type, isTracking);
 			efficiencyFactor = powerFactor;
-			Lib.Proto.Set(m, "persistentFactor", efficiencyFactor);
 
 			// get wear factor (output degradation with time)
 			if (m.moduleValues.HasNode("timeEfficCurve"))
@@ -753,14 +741,6 @@ namespace KERBALISM
 		{
 			state = isBroken ? PanelState.Failure : SolarPanel.GetState();
 			SolarPanel.Break(isBroken);
-		}
-
-		public static double GetSolarPanelsAverageExposure(List<double> exposures)
-		{
-			if (exposures.Count == 0) return -1.0;
-			double averageExposure = 0.0;
-			foreach (double exposure in exposures) averageExposure += exposure;
-			return averageExposure / exposures.Count;
 		}
 
 		/// <summary>
