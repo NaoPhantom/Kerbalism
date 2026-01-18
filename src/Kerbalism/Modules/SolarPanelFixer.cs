@@ -325,6 +325,7 @@ namespace KERBALISM
 					addRate = true;
 					break;
 				case ExposureState.Disabled:
+					Fields["panelMode"].guiActive = false;
 					switch (state)
 					{
 						case PanelState.Retracted: panelStatus = Local.SolarPanelFixer_retracted; break;//"Retracted"
