@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
@@ -54,6 +55,9 @@ namespace KERBALISM
 		/// <summary>nominal rate at 1 UA (Kerbin distance from the sun)</summary>
 		[KSPField(isPersistant = true)]
 		public double nominalRate = 10.0; // doing this on the purpose of not breaking existing saves
+
+		[KSPField(isPersistant = true)]
+		public string resourceName = "ElectricCharge";
 
 		/// <summary>current state of the module</summary>
 		[KSPField(isPersistant = true)]
@@ -162,20 +166,23 @@ namespace KERBALISM
 
 		public override void OnLoad(ConfigNode node)
 		{
+			if (SolarPanel == null) GetSolarPanelModule();
+			if (SolarPanel != null) resourceName = SolarPanel.ResourceName;
+
 			if (HighLogic.LoadedScene == GameScenes.LOADING)
 			{
 				prefabDefinesTimeEfficCurve = node.HasNode("timeEfficCurve");
 				if (string.IsNullOrEmpty(EcUIUnit))
 				{
-					var rui = Lib.GetResourceUnitInfo(Lib.ECResID);
+					var rui = Lib.GetResourceUnitInfo(resourceName);
 					hasRUI = rui != null;
 					if (hasRUI)
 						EcUIUnit = rui.RateUnit;
 					else
-						EcUIUnit = "EC/s";
+						EcUIUnit = resourceName == "ElectricCharge" ? "EC/s" : new string(resourceName.Where(c => char.IsUpper(c)).ToArray()) + "/s";
 				}
 			}
-			if (SolarPanel == null && !GetSolarPanelModule())
+			if (SolarPanel == null)
 				return;
 
 			if (Lib.IsEditor()) return;
@@ -345,7 +352,7 @@ namespace KERBALISM
 					if (Settings.UseSIUnits)
 					{
 						if (hasRUI)
-							sb.Append(Lib.SIRate(currentOutput, Lib.ECResID));
+							sb.Append(Lib.SIRate(currentOutput, resourceName.GetHashCode()));
 						else
 							sb.Append(Lib.SIRate(currentOutput, EcUIUnit));
 						panelStatusEnergy = sb.ToString();
@@ -590,7 +597,6 @@ namespace KERBALISM
 						exposureFactor = sunCosineFactor * sunOccludedFactor;
 					}
 				}
-				
 			}
 
 			wearFactor = 1.0;
@@ -609,10 +615,10 @@ namespace KERBALISM
 			}
 
 			// get resource handler
-			ResourceInfo ec = ResourceCache.GetResource(vessel, "ElectricCharge");
+			ResourceInfo res = ResourceCache.GetResource(vessel, resourceName);
 
-			// produce EC
-			ec.Produce(currentOutput * Kerbalism.elapsed_s, ResourceBroker.SolarPanel);
+			// produce resource
+			res.Produce(currentOutput * Kerbalism.elapsed_s, ResourceBroker.SolarPanel);
 			UnityEngine.Profiling.Profiler.EndSample();
 		}
 
@@ -621,6 +627,11 @@ namespace KERBALISM
 			UnityEngine.Profiling.Profiler.BeginSample("Kerbalism.SolarPanelFixer.BackgroundUpdate");
 			// this is ugly spaghetti code but initializing the prefab at loading time is messy because the targeted solar panel module may not be loaded yet
 			if (!prefab.isInitialized) prefab.OnStart(StartState.None);
+
+			if (prefab.resourceName != "ElectricCharge")
+			{
+				ec = ResourceCache.GetResource(v, prefab.resourceName);
+			}
 
 			string state = Lib.Proto.GetString(m, "state");
 			if (!(state == "Static" || state == "Extended" || state == "ExtendedFixed"))
@@ -631,12 +642,77 @@ namespace KERBALISM
 
 			double efficiencyFactor = 0.0;
 
-			// Retrieve tracking info and calculate dynamic power factor
+			// Retrieve tracking info
 			int trackedSunIndex = Lib.Proto.GetInt(m, "trackedSunIndex");
+			bool manualTracking = Lib.Proto.GetBool(m, "manualTracking");
+			bool isTracking = prefab.SolarPanel.IsTracking;
+
 			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
+			
+			// Auto-tracking logic for background/analytic mode
+			if (!manualTracking && isTracking && vd.EnvSunsInfo.Count > 0)
+			{
+				VesselData.SunInfo bestSun = null;
+
+				if (vd.EnvIsAnalytic)
+				{
+					// Mode A: Analytic Mode - Find the star providing the maximum solar flux
+					double maxFlux = -1.0;
+					foreach (var sunInfo in vd.EnvSunsInfo)
+					{
+						if (sunInfo.SolarFlux > maxFlux)
+						{
+							maxFlux = sunInfo.SolarFlux;
+							bestSun = sunInfo;
+						}
+					}
+				}
+				else
+				{
+					// Mode B: Standard Mode - Find the brightest star that is not currently occluded
+					double maxActiveFlux = -1.0;
+					foreach (var sunInfo in vd.EnvSunsInfo)
+					{
+						if (sunInfo.SunlightFactor > 0.05)
+						{
+							if (sunInfo.SolarFlux > maxActiveFlux)
+							{
+								maxActiveFlux = sunInfo.SolarFlux;
+								bestSun = sunInfo;
+							}
+						}
+					}
+
+					// Fallback: If all stars are blocked, target the nearest star by distance
+					if (bestSun == null)
+					{
+						double minDistance = double.MaxValue;
+						Vector3d vesselPos = Lib.VesselPosition(v);
+						foreach (var sunInfo in vd.EnvSunsInfo)
+						{
+							double dist = Vector3d.Distance(vesselPos, sunInfo.SunData.body.position);
+							if (dist < minDistance)
+							{
+								minDistance = dist;
+								bestSun = sunInfo;
+							}
+						}
+					}
+				}
+
+				if (bestSun != null)
+				{
+					trackedSunInfo = bestSun;
+					// Update the proto if the tracked sun has changed, so it persists
+					if (trackedSunIndex != bestSun.SunData.bodyIndex)
+					{
+						Lib.Proto.Set(m, "trackedSunIndex", bestSun.SunData.bodyIndex);
+					}
+				}
+			}
+
 			if (trackedSunInfo == null && vd.EnvSunsInfo.Count > 0) trackedSunInfo = vd.EnvSunsInfo[0];
 
-			bool isTracking = prefab.SolarPanel.IsTracking;
 			double powerFactor = CalculateMultiStarPowerAnalytic(v, vd.EnvSunsInfo, trackedSunInfo, prefab.SolarPanel.Type, isTracking);
 			efficiencyFactor = powerFactor;
 
@@ -800,34 +876,16 @@ namespace KERBALISM
 			{
 				return CalculateLandedMultiStarPower(v, suns, mainSun, panelType, isTracking);
 			}
-
 			double orbitPeriod = v.orbit.period;
 			double ut0 = Planetarium.GetUniversalTime();
-			double totalPowerExpectation = 0.0;
 
+			double totalPowerExpectation = 0.0;
+			bool isAnalytic = v.KerbalismData().EnvIsAnalytic;
 			foreach (var sun in suns)
 			{
 				if (sun.SolarFlux < 1e-6) continue;
 
-				Vector3d starDir = sun.Direction.normalized;
-				double duty = 1.0;
-
-				// Step 1: Calculate visibility probability (Duty Cycle)
-				// We sample over the entire orbit to get a stable average, avoiding jitter from time-based windowing.
-				if (CanStarCauseEclipse(v, starDir))
-				{
-					const int windowSamples = 16;
-					int litCount = 0;
-					double step = orbitPeriod / windowSamples;
-					for (int i = 0; i < windowSamples; i++)
-					{
-						if (!IsOccludedAtTime(v, starDir, ut0 + (i * step)))
-							litCount++;
-					}
-					duty = (double)litCount / windowSamples;
-				}
-
-				// Step 2: Critical Correction — Calculate effective incidence angle for this star relative to the panel
+				// Calculate effective incidence angle for this star relative to the panel
 				double effectiveCos = 0.0;
 
 				if (panelType == ModuleDeployableSolarPanel.PanelType.SPHERICAL)
@@ -842,6 +900,7 @@ namespace KERBALISM
 				{
 					if (isTracking)
 					{
+						if (Lib.IsFlight()) { }
 						// If tracking, the panel aligns perfectly with the 'mainSun'
 						if (sun == mainSun)
 						{
@@ -860,9 +919,9 @@ namespace KERBALISM
 						effectiveCos = 1.5 / Math.PI;
 					}
 				}
-
-				// Step 3: Accumulate Energy Expectation
-				totalPowerExpectation += duty * (sun.SolarFlux / Sim.SolarFluxAtHome) * effectiveCos;
+				// Accumulate Energy Expectation
+				// sun.SolarFlux is fully pre-calculated with occlusion and atmosphere logic.
+				totalPowerExpectation += (sun.SolarFlux / Sim.SolarFluxAtHome) * effectiveCos;
 			}
 
 			return totalPowerExpectation;
@@ -878,18 +937,27 @@ namespace KERBALISM
 			// --------- Surface normal (works for loaded & unloaded) ----------
 			Vector3d vesselPos = Lib.VesselPosition(v);
 			Vector3d surfaceNormal = (vesselPos - v.mainBody.position).normalized;
-
-			// --------- Latitude ----------
 			double latitude = Math.Asin(Vector3d.Dot(surfaceNormal, v.mainBody.transform.up));
 
+			bool isAnalytic = v.KerbalismData().EnvIsAnalytic;
 			foreach (var sun in suns)
 			{
-				if (sun.SolarFlux < 1e-6) continue;
+				double duty = 1.0;
+				if (isAnalytic)
+				{
+					if (sun.SunData.SolarFlux(sun.Distance) < 1e-6) continue;
+				}
+				else
+				{
+					if (sun.SolarFlux < 1e-6) continue;
+				}
 
 				Vector3d sunDir = sun.Direction.normalized;
-
-				// --------- 1. Daylight Duty Cycle ----------
-				double duty = CalculateSurfaceDaylightDuty(v,v.mainBody, latitude, sunDir, sun.SunData.body);
+				if (isAnalytic)
+				{
+					// --------- 1. Daylight Duty Cycle ----------
+					duty = CalculateSurfaceDaylightDuty(v, v.mainBody, latitude, sunDir, sun.SunData.body);
+				}
 				if (duty <= 0.0)
 					continue;
 
@@ -913,7 +981,6 @@ namespace KERBALISM
 						{
 							// Tracking panel: expected cosine on surface
 							effectiveCos = 1.0;
-							duty = 1.0;
 						}
 						else
 						{
@@ -936,7 +1003,15 @@ namespace KERBALISM
 						}
 					}
 				}
-				totalPower += duty * effectiveCos * (sun.SolarFlux / Sim.SolarFluxAtHome);
+				if (isAnalytic)
+				{
+					double rawFlux = sun.SunData.SolarFlux(sun.Distance);
+					totalPower += duty * effectiveCos * (rawFlux * sun.AtmoFactor / Sim.SolarFluxAtHome);
+				}
+				else
+				{
+					totalPower += effectiveCos * (sun.SolarFlux / Sim.SolarFluxAtHome);
+				}
 			}
 			return totalPower;
 		}
@@ -1019,6 +1094,8 @@ namespace KERBALISM
 			/// <summary>Reliability : specific hacks for the target module that must be applied when the panel is disabled by a failure</summary>
 			public virtual void Break(bool isBroken) { }
 
+			public virtual string ResourceName => "ElectricCharge";
+
 			/// <summary>Automation : override this with "return false" if the module doesn't support automation when loaded</summary>
 			public virtual bool SupportAutomation(PanelState state)
 			{
@@ -1095,6 +1172,8 @@ namespace KERBALISM
 				this.fixerModule = fixerModule;
 				panelModule = (ModuleDeployableSolarPanel)targetModule;
 			}
+
+			public override string ResourceName => panelModule.resourceName;
 
 			public override ModuleDeployableSolarPanel.PanelType Type => panelModule.panelType;
 
