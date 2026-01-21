@@ -623,11 +623,27 @@ namespace KERBALISM
 			UnityEngine.Profiling.Profiler.EndSample();
 		}
 
-		public static void BackgroundUpdate(Vessel v, ProtoPartModuleSnapshot m, SolarPanelFixer prefab, VesselData vd, ResourceInfo ec, double elapsed_s)
+		public static void BackgroundUpdate(Vessel v, ProtoPartSnapshot p, ProtoPartModuleSnapshot m, SolarPanelFixer prefab, VesselData vd, ResourceInfo ec, double elapsed_s)
 		{
 			UnityEngine.Profiling.Profiler.BeginSample("Kerbalism.SolarPanelFixer.BackgroundUpdate");
 			// this is ugly spaghetti code but initializing the prefab at loading time is messy because the targeted solar panel module may not be loaded yet
 			if (!prefab.isInitialized) prefab.OnStart(StartState.None);
+
+			// check if the panel is broken by Reliability
+			// If Reliability targets ModuleDeployableSolarPanel, SolarPanelFixer (this module) remains enabled
+			// so we have to manually check if the target module is broken
+			for (int i = 0; i < p.modules.Count; i++)
+			{
+				if (p.modules[i].moduleName == "Reliability" && Lib.Proto.GetBool(p.modules[i], "broken"))
+				{
+					string type = Lib.Proto.GetString(p.modules[i], "type");
+					if (type == "SolarPanelFixer" || (prefab.SolarPanel != null && prefab.SolarPanel.TargetModule != null && type == prefab.SolarPanel.TargetModule.moduleName))
+					{
+						UnityEngine.Profiling.Profiler.EndSample();
+						return;
+					}
+				}
+			}
 
 			if (prefab.resourceName != "ElectricCharge")
 			{
