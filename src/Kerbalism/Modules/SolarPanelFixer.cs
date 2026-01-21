@@ -664,7 +664,7 @@ namespace KERBALISM
 			bool manualTracking = Lib.Proto.GetBool(m, "manualTracking");
 			bool isTracking = prefab.SolarPanel.IsTracking;
 
-			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
+			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(s => s.SunData.bodyIndex == trackedSunIndex);
 			
 			// Auto-tracking logic for background/analytic mode
 			if (!manualTracking && isTracking && vd.EnvSunsInfo.Count > 0)
