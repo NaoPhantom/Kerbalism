@@ -541,7 +541,7 @@ namespace KERBALISM
 				// reset factors
 				exposureFactor = 0.0;
 				powerFactor = 0.0;
-				
+
 				// iterate over all stars, compute the exposure factor
 				foreach (VesselData.SunInfo sunInfo in vd.EnvSunsInfo)
 				{
@@ -586,7 +586,7 @@ namespace KERBALISM
 						// Core: Angle of the star * Occlusion of the star * (Actual flux of the star / Reference flux)
 						double starDistanceFactor = sunInfo.SolarFlux / Sim.SolarFluxAtHome;
 						powerFactor += sunCosineFactor * sunOccludedFactor * starDistanceFactor;
-					
+
 					}
 					else if (sunInfo == trackedSunInfo)
 					{
@@ -665,7 +665,7 @@ namespace KERBALISM
 			bool isTracking = prefab.SolarPanel.IsTracking;
 
 			VesselData.SunInfo trackedSunInfo = vd.EnvSunsInfo.Find(s => s.SunData.bodyIndex == trackedSunIndex);
-			
+
 			// Auto-tracking logic for background/analytic mode
 			if (!manualTracking && isTracking && vd.EnvSunsInfo.Count > 0)
 			{
@@ -779,6 +779,7 @@ namespace KERBALISM
 					case "SSTUSolarPanelDeployable": SolarPanel = new SSTUVeryComplexPanel(); break;
 					case "SSTUModularPart": SolarPanel = new SSTUVeryComplexPanel(); break;
 					case "ModuleROSolar": SolarPanel = new ROConfigurablePanel(); break;
+					case "USSolarSwitch": SolarPanel = new UniversalStorage2Panel(); break;
 					case "KopernicusSolarPanel":
 						Lib.Log("Part '" + part.partInfo.title + "' use the KopernicusSolarPanel module, please remove it from your config. Kerbalism has it's own support for Kopernicus", Lib.LogLevel.Warning);
 						continue;
@@ -1032,7 +1033,7 @@ namespace KERBALISM
 			}
 			return totalPower;
 		}
-		private static double CalculateSurfaceDaylightDuty(Vessel v,CelestialBody body, double latitude, Vector3d sunDir, CelestialBody sunBody)
+		private static double CalculateSurfaceDaylightDuty(Vessel v, CelestialBody body, double latitude, Vector3d sunDir, CelestialBody sunBody)
 		{
 			// Tidally locked body
 			// Only apply if the body is locked to the sun we are evaluating
@@ -1945,6 +1946,238 @@ namespace KERBALISM
 			*/
 		}
 
+		#endregion
+
+		#region Universal Storage 2 support (USSolarSwitch)
+		private class UniversalStorage2Panel : SupportedPanel<PartModule>
+		{
+			private List<Transform> sunCatchers;
+			private float[] chargeRates;
+			private int lastSelection = -1;
+			private MethodInfo deployMethod;
+
+			public override void OnLoad(SolarPanelFixer fixerModule, PartModule targetModule)
+			{
+				this.fixerModule = fixerModule;
+				panelModule = targetModule;
+			}
+
+			public override string ResourceName => Lib.ReflectionValue<string>(panelModule, "resourceName");
+
+			public override ModuleDeployableSolarPanel.PanelType Type => ModuleDeployableSolarPanel.PanelType.FLAT;
+
+			public override bool OnStart(bool initialized, ref double nominalRate)
+			{
+				// Disable the target module to stop its FixedUpdate (power generation)
+				panelModule.enabled = false;
+
+				string chargeRateStr = Lib.ReflectionValue<string>(panelModule, "chargeRate");
+				if (!string.IsNullOrEmpty(chargeRateStr))
+				{
+					string[] rates = chargeRateStr.Split(new char[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+					chargeRates = new float[rates.Length];
+					for (int i = 0; i < rates.Length; i++)
+					{
+						float.TryParse(rates[i], out chargeRates[i]);
+					}
+				}
+				else
+				{
+					chargeRates = new float[] { 0f };
+				}
+
+				sunCatchers = new List<Transform>();
+				string secondaryTransformName = Lib.ReflectionValue<string>(panelModule, "secondaryTransformName");
+				if (!string.IsNullOrEmpty(secondaryTransformName))
+				{
+					Transform[] transforms = panelModule.part.FindModelTransforms(secondaryTransformName);
+					if (transforms != null)
+						sunCatchers.AddRange(transforms);
+				}
+
+				if (sunCatchers.Count == 0)
+				{
+					Lib.Log("Could not find suncatcher transform `{0}` in part `{1}`", Lib.LogLevel.Error, secondaryTransformName, panelModule.part.name);
+					return false;
+				}
+
+				deployMethod = panelModule.GetType().GetMethod("DeploySolarPanels", new Type[] { typeof(bool) });
+
+				UpdateNominalRate();
+				nominalRate = fixerModule.nominalRate;
+
+				// We don't need to zero out rate if we disabled the module, 
+				// but let's do it once just in case.
+				ZeroOutRate();
+
+				return true;
+			}
+
+			private void UpdateNominalRate()
+			{
+				if (chargeRates == null || chargeRates.Length == 0)
+				{
+					fixerModule.nominalRate = 0.0;
+					return;
+				}
+
+				int selection = Lib.ReflectionValue<int>(panelModule, "CurrentSelection");
+				if (selection >= 0 && selection < chargeRates.Length)
+				{
+					fixerModule.nominalRate = chargeRates[selection];
+				}
+				else
+				{
+					fixerModule.nominalRate = 0.0;
+				}
+				lastSelection = selection;
+			}
+
+			private void ZeroOutRate()
+			{
+				if (panelModule.resHandler != null && panelModule.resHandler.outputResources.Count > 0)
+				{
+					foreach (var res in panelModule.resHandler.outputResources) res.rate = 0.0;
+				}
+			}
+
+			public override void OnUpdate()
+			{
+				// Check for variant switching
+				int currentSelection = Lib.ReflectionValue<int>(panelModule, "CurrentSelection");
+				if (currentSelection != lastSelection)
+				{
+					UpdateNominalRate();
+				}
+
+				// Hide UI fields
+				foreach (BaseField field in panelModule.Fields)
+				{
+					field.guiActive = false;
+					field.guiActiveEditor = false;
+				}
+			}
+
+			public override double GetOccludedFactor(Vector3d sunDir, out string occludingPart, bool analytic = false)
+			{
+				occludingPart = null;
+				double totalOcclusion = 0;
+				int count = 0;
+
+				foreach (Transform t in sunCatchers)
+				{
+					if (t == null) continue;
+
+					if (analytic)
+					{
+						RaycastHit raycastHit;
+						if (Physics.Raycast(t.position + (sunDir * 0.1f), sunDir, out raycastHit, 10000f))
+						{
+						}
+						else
+						{
+							totalOcclusion += 1.0;
+						}
+					}
+					else
+					{
+						string tempOccludingPart = null;
+						if (Visible(t, sunDir, out tempOccludingPart))
+						{
+							totalOcclusion += 1.0;
+						}
+						else
+						{
+							if (occludingPart == null) occludingPart = tempOccludingPart;
+						}
+					}
+					count++;
+				}
+
+				if (count == 0) return 0.0;
+				return totalOcclusion / count;
+			}
+
+			private bool Visible(Transform t, Vector3d sunDir, out string occludingPart)
+			{
+				occludingPart = null;
+				RaycastHit hit;
+				if (Physics.Raycast(t.position + (sunDir * 0.25f), sunDir, out hit, 10000f))
+				{
+					Part p = hit.collider.GetComponentInParent<Part>();
+					if (p == panelModule.part) return true;
+
+					if (p != null) occludingPart = p.partInfo.title;
+					return false;
+				}
+				return true;
+			}
+
+			public override double GetCosineFactor(Vector3d sunDir, bool analytic = false)
+			{
+				double totalCos = 0;
+				int count = 0;
+				foreach (Transform t in sunCatchers)
+				{
+					if (t == null) continue;
+					double dot = Vector3.Dot(t.forward, sunDir);
+					totalCos += Math.Max(0.0, dot);
+					count++;
+				}
+				if (count == 0) return 0.0;
+				return totalCos / count;
+			}
+
+			public override PanelState GetState()
+			{
+				bool isActive = Lib.ReflectionValue<bool>(panelModule, "IsActive");
+				bool isFixed = Lib.ReflectionValue<bool>(panelModule, "IsFixed");
+				bool isDeployed = Lib.ReflectionValue<bool>(panelModule, "IsDeployed");
+
+				if (!isActive) return PanelState.Retracted;
+				if (isFixed) return PanelState.Static;
+				if (isDeployed) return PanelState.Extended;
+				return PanelState.Retracted;
+			}
+
+			public override bool SupportAutomation(PanelState state)
+			{
+				bool isFixed = Lib.ReflectionValue<bool>(panelModule, "IsFixed");
+				if (isFixed) return false;
+				return base.SupportAutomation(state);
+			}
+
+			public override void Extend()
+			{
+				bool isFixed = Lib.ReflectionValue<bool>(panelModule, "IsFixed");
+				if (isFixed) return;
+				if (deployMethod != null) deployMethod.Invoke(panelModule, new object[] { true });
+			}
+
+			public override void Retract()
+			{
+				bool isFixed = Lib.ReflectionValue<bool>(panelModule, "IsFixed");
+				if (isFixed) return;
+				if (deployMethod != null) deployMethod.Invoke(panelModule, new object[] { false });
+			}
+
+			public override void SetDeployedStateOnLoad(PanelState state)
+			{
+				bool isFixed = Lib.ReflectionValue<bool>(panelModule, "IsFixed");
+				if (isFixed) return;
+
+				if (deployMethod == null)
+					deployMethod = panelModule.GetType().GetMethod("DeploySolarPanels", new Type[] { typeof(bool) });
+
+				if (deployMethod != null)
+				{
+					if (state == PanelState.Extended || state == PanelState.ExtendedFixed)
+						deployMethod.Invoke(panelModule, new object[] { true });
+					else if (state == PanelState.Retracted)
+						deployMethod.Invoke(panelModule, new object[] { false });
+				}
+			}
+		}
 		#endregion
 	}
 
