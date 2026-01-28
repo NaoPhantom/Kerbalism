@@ -870,7 +870,7 @@ namespace KERBALISM
 		public static string HardDrive_Capacity = GetLoc("HardDrive_Capacity"); // "Capacity"
 		public static string HardDrive_Data = GetLoc("HardDrive_Data"); // "Data"
 		public static string HardDrive_Dataempty = GetLoc("HardDrive_Dataempty"); // "empty"
-		public static string HardDrive_WARNING_title = GetLoc("HardDrive_WARNING_title"); // "WARNING: not evering copied"
+		public static string HardDrive_WARNING_title = GetLoc("HardDrive_WARNING_title"); // "WARNING: not everything copied"
 		public static string HardDrive_WARNING = GetLoc("HardDrive_WARNING"); // "Storage is at capacity"
 		public static string HardDrive_info1 = GetLoc("HardDrive_info1"); // "File capacity"
 		public static string HardDrive_info2 = GetLoc("HardDrive_info2"); // "Sample capacity"
@@ -1240,7 +1240,7 @@ namespace KERBALISM
 		public static string Planner_emission = GetLoc("Planner_emission"); // "emission"
 		public static string Planner_activeshielding = GetLoc("Planner_activeshielding"); // "active shielding"
 		public static string Planner_shielding = GetLoc("Planner_shielding"); // "shielding"
-																			  //traduce the redundancy metric to string
+		//traduce the redundancy metric to string
 		public static string Planner_none = GetLoc("Planner_none"); // "none"
 		public static string Planner_poor = GetLoc("Planner_poor"); // "poor"
 		public static string Planner_okay = GetLoc("Planner_okay"); // "okay"
@@ -1327,9 +1327,9 @@ namespace KERBALISM
 		////////////////////////////////////////////////////////////////////
 		//show warning message when a vessel cross a radiation belt
 		public static ParamString BeltWarnings_msg = new ParamString("BeltWarnings_msg"); // "<<1>> is crossing <<2>> radiation belt"
-																						  // Remove Symmetry On Visible Resource Switch
+		// Remove Symmetry On Visible Resource Switch
 		public static ParamString RemoveSymmetry_msg = new ParamString("RemoveSymmetry_msg"); // "Symmetry on <<1>>\nhas been removed because of switching the <<2>> capacity."
-																							  // Notify the user when crop can be harvested
+		// Notify the user when crop can be harvested
 		public static ParamString harvestedready_msg = new ParamString("harvestedready_msg"); // "On <<1>> the crop is ready to be harvested"
 		public static string BeltWarnings_msgSubtext = GetLoc("BeltWarnings_msgSubtext"); // "Exposed to extreme radiation"
 		public static string Fittingparticles_msg = GetLoc("Fittingparticles_msg"); // "Fitting particles to signed distance fields"
