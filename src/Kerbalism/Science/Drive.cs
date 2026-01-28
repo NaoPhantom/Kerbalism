@@ -521,7 +521,7 @@ namespace KERBALISM
 			else
 				Message.Post
 				(
-					Lib.Color(Lib.BuildString("WARNING: not everything copied"), Lib.Kolor.Red, true),
+					Lib.Color(Lib.BuildString(Local.HardDrive_WARNING_title), Lib.Kolor.Red, true), //"WARNING: not everything copied"
 					Lib.BuildString(Local.Generic_FROM, " <b>", src.vesselName, "</b> ", Local.Generic_TO, " <b>", dst.vesselName, "</b>")
 				);
 		}
