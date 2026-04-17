@@ -37,6 +37,12 @@ namespace KERBALISM
 
 		public static void Close()
 		{
+			foreach (KmsGuiToggleListElement<ExpInfoAndSubjects> exp in
+					experimentsToggleList.ChildToggles)
+			{
+				body.ToggleBody(false);
+				body.SubjectsContainer.DestroyUIObjects();
+			}
 
 
 			window.Close();
