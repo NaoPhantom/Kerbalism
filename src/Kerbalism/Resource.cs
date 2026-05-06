@@ -291,8 +291,9 @@ namespace KERBALISM
 			{
 				foreach (Part p in v.Parts)
 				{
-					foreach (PartResource r in p.Resources)
+					for (int i = 0; i < p.Resources.Count; i++)
 					{
+						PartResource r = p.Resources[i];
 						if (knownResources.Contains(r.resourceName)) continue;
 						knownResources.Add(r.resourceName);
 						result.Add(GetResource(v, r.resourceName));
