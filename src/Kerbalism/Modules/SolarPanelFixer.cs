@@ -609,7 +609,7 @@ namespace KERBALISM
 			}
 
 			wearFactor = 1.0;
-			if (timeEfficCurve?.length > 1)
+			if (timeEfficCurve?.Curve.length > 1)
 				wearFactor = Lib.Clamp(timeEfficCurve.Evaluate((float)((Planetarium.GetUniversalTime() - launchUT) / 3600.0)), 0.0, 1.0);
 
 			currentOutput = nominalRate * wearFactor * powerFactor;
