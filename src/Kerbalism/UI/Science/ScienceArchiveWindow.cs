@@ -37,13 +37,14 @@ namespace KERBALISM
 
 		public static void Close()
 		{
-			foreach (KmsGuiToggleListElement<ExpInfoAndSubjects> exp in
-					experimentsToggleList.ChildToggles)
+			foreach (KsmGuiToggleListElement<ExpInfoAndSubjects> exp in experimentsToggleList.ChildToggles)
 			{
-				body.ToggleBody(false);
-				body.SubjectsContainer.DestroyUIObjects();
+				foreach (ExperimentSubjectList.BodyContainer body in exp.ToggleId.experimentSubjectList.BodyContainers)
+				{
+					body.ToggleBody(false);
+					body.SubjectsContainer.DestroyUIObjects();
+				}
 			}
-
 
 			window.Close();
 		}
@@ -92,7 +93,7 @@ namespace KERBALISM
 			if (Kerbalism.SerenityEnabled)
 				ROCFilter = new KsmGuiToggle(experimentColumn, Local.SCIENCEARCHIVE_filter2, true, OnToggleROCFilter);//"filter ROCs"
 			vesselFilter = new KsmGuiToggle(experimentColumn, Local.SCIENCEARCHIVE_filter3, false, OnToggleVesselFilter);//"filter by current vessel"
-			
+
 			KsmGuiVerticalScrollView experimentsScrollView = new KsmGuiVerticalScrollView(experimentColumn, 0, 0, 0, 0, 0);
 			experimentsScrollView.SetLayoutElement(true, true, 160);
 			experimentsToggleList = new KsmGuiToggleList<ExpInfoAndSubjects>(experimentsScrollView, OnToggleExperiment);
@@ -224,7 +225,7 @@ namespace KERBALISM
 			}
 		}
 
-		
+
 		private void OnConfigure(Part part, Configure configureModule)
 		{
 			if (window.Enabled && vesselFilter.Enabled && vesselFilter.IsOn)
@@ -373,7 +374,7 @@ namespace KERBALISM
 						{
 							researchedExpInfos.Add(experiment.ExpInfo);
 						}
-						
+
 					}
 					else if (partModule is ModuleScienceExperiment stockExperiment)
 					{
