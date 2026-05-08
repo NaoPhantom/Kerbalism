@@ -16,7 +16,7 @@ namespace KERBALISM
 	// This module is used to disable stock and other plugins solar panel EC output and provide specific support
 	// EC must be produced using the resource cache, that give us correct behaviour independent from timewarp speed and vessel EC capacity.
 	// To be able to support a custom module, we need to be able to do the following :
-	// - (imperative) prevent the module from using the stock API calls to generate EC 
+	// - (imperative) prevent the module from using the stock API calls to generate EC
 	// - (imperative) get the nominal rate at 1 AU
 	// - (imperative) get the "suncatcher" transforms or vectors
 	// - (imperative) get the "pivot" transforms or vectors if it's a tracking panel
@@ -312,7 +312,7 @@ namespace KERBALISM
 					addRate = true;
 					break;
 				case ExposureState.OccludedPart:
-					panelStatus = Lib.BuildString("<color=#ff2222>", Local.SolarPanelFixer_occludedby.Format(mainOccludingPart), "</color>");//Occluded By 
+					panelStatus = Lib.BuildString("<color=#ff2222>", Local.SolarPanelFixer_occludedby.Format(mainOccludingPart), "</color>");//Occluded By
 					addRate = true;
 					break;
 				case ExposureState.BadOrientation:
@@ -461,7 +461,7 @@ namespace KERBALISM
 			 * 2. Analytic Mode: Selects the star with the highest SolarFlux (direct calculation).
 			 * 3. Standard Mode:
 			 *		- Primary: Selects the brightest visible star (SunlightFactor > 0.05).
-			 *		- Fallback: If all stars are occluded (e.g., in a planet's shadow), selects the 
+			 *		- Fallback: If all stars are occluded (e.g., in a planet's shadow), selects the
 			 * geometrically closest star to ensure the panel is pre-aligned when exiting shadow.
 			**/
 			if (!manualTracking && (state == PanelState.Extended || state == PanelState.ExtendedFixed || state == PanelState.Static))
@@ -521,7 +521,15 @@ namespace KERBALISM
 				}
 			}
 
-			trackedSunInfo = vd.EnvSunsInfo.Find(p => p.SunData.bodyIndex == trackedSunIndex);
+			VesselData.SunInfo trackedSunInfo = null;
+			for (int i = 0; i < vd.EnvSunsInfo.Count; i++)
+			{
+				if (vd.EnvSunsInfo[i].SunData.bodyIndex == trackedSunIndex)
+				{
+					trackedSunInfo = vd.EnvSunsInfo[i];
+					break;
+				}
+			}
 
 			if (trackedSunInfo.SunlightFactor == 0.0)
 				exposureState = ExposureState.InShadow;
@@ -601,7 +609,7 @@ namespace KERBALISM
 			}
 
 			wearFactor = 1.0;
-			if (timeEfficCurve?.Curve.keys.Length > 1)
+			if (timeEfficCurve?.length > 1)
 				wearFactor = Lib.Clamp(timeEfficCurve.Evaluate((float)((Planetarium.GetUniversalTime() - launchUT) / 3600.0)), 0.0, 1.0);
 
 			currentOutput = nominalRate * wearFactor * powerFactor;
@@ -2006,7 +2014,7 @@ namespace KERBALISM
 				UpdateNominalRate();
 				nominalRate = fixerModule.nominalRate;
 
-				// We don't need to zero out rate if we disabled the module, 
+				// We don't need to zero out rate if we disabled the module,
 				// but let's do it once just in case.
 				ZeroOutRate();
 
